@@ -68,9 +68,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Models\ConfigModel.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="ResponseModel.cs" />
+    <Compile Include="Models\ResponseModel.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />

@@ -1,88 +1,125 @@
-﻿using System;
+﻿using Pinger.Models;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.Eventing.Reader;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Net.NetworkInformation;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
 
 namespace Pinger
 {
 	internal partial class Program
 	{
-		private static ConcurrentQueue<ResponseModel> _queue = new ConcurrentQueue<ResponseModel>();
-		private static ResponseModel _currentModel;
-		private static bool _running = true;
-		private static CancellationTokenSource _token = new CancellationTokenSource();
+		/// <summary>
+		/// Constants
+		/// </summary>
 		private static int MAX_DATA = 100;
 		static string HOUR_DATE_TIME = "HH-mm-ss";
 		static string FULL_DATE_TIME = "dd-MM-yyyy_HH-mm-ss";
+
+		/// <summary>
+		/// Fields
+		/// </summary>
+		private static ConcurrentQueue<ResponseModel> _queue = new ConcurrentQueue<ResponseModel>();
+		private static ResponseModel _currentModel;
+		private static bool _running = true;
 		private static AutoResetEvent _resetEvent = new AutoResetEvent(false);
-		static void Main(string[] args)
+		private static ConfigModel _config;
+		private static int _count = 0;
+
+		static async Task Main(string[] args)
 		{
-			Directory.CreateDirectory(GetFolderPath());
-			var ct = _token.Token;
-			Console.CancelKeyPress += Console_CancelKeyPress;
+			await LoadDirectories();
 
-			var pingTask = Task.Run(() =>
+			try
 			{
-				ct.ThrowIfCancellationRequested();
+				CreatePingTask();
+				CreateProcessTask();
+				CreateUITask();
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine(ex.ToString());
+			}
 
+			while (Console.ReadKey().Key != ConsoleKey.Escape) //stuck in a loop unless Esc key is pressed.
+			{ }
+
+			_running = false;
+		}
+
+		private static async Task LoadDirectories()
+		{
+			Directory.CreateDirectory(GetDataFolderPath());
+
+			if(File.Exists(GetConfigPath()))
+			{
+				using (FileStream openStream = File.OpenRead(GetConfigPath()))
+				{
+					_config = JsonSerializer.Deserialize<ConfigModel>(openStream);
+				}
+			} 
+			else
+			{
+				_config = new ConfigModel();
+				await Save(_config, GetConfigPath());
+			}
+		}
+
+		private static void CreatePingTask()
+		{
+			Task.Run(() =>
+			{
 				while (_running)
 				{
 					Ping();
-					Task.Delay(500).Wait();
+					Task.Delay(_config.RequestInterval).Wait();
 				};
-			}, ct);
+			});
+		}
 
-			var processTask = Task.Run(async () =>
+		private static void CreateProcessTask()
+		{
+			Task.Run(async () =>
 			{
-				ct.ThrowIfCancellationRequested();
-
 				while (_running)
 				{
 					await ProcessAsync();
 					Task.Delay(5000).Wait();
 				};
-			}, ct);
+			});
+		}
 
-			var uiThread = Task.Run(() =>
+		private static void CreateUITask()
+		{
+			Task.Run(() =>
 			{
-				ct.ThrowIfCancellationRequested();
-
 				while (_running)
 				{
+					if (_count > 1000)
+					{
+						Console.Clear();
+						_count = 0;
+					}
+
 					if (_resetEvent.WaitOne())
+					{
 						UpdateUI();
+						_count++;
+					}
+
 					Task.Delay(1).Wait();
 				};
-			}, ct);
-
-			while (Console.ReadKey().Key != ConsoleKey.Escape) { } //get stuck in nothing until Esc is pressed.
-
-			Finish();
-		}
-
-		private static void Console_CancelKeyPress(object sender, ConsoleCancelEventArgs e)
-		{
-			Finish();
-		}
-
-		private static void Finish()
-		{
-			_running = false;
-			_token.Cancel();
+			});
 		}
 
 		private static async Task ProcessAsync()
 		{
-			if (_queue.Count < MAX_DATA)
+			if (_queue.Count < _config.MaxData)
 				return;
 
 			var list = new List<ResponseModel>();
@@ -92,32 +129,37 @@ namespace Pinger
 				list.Add(model);
 			}
 
-			await Save(list);
+			var path = Path.Combine(GetDataFolderPath(), $"data_{DateTimeNow(FULL_DATE_TIME)}");
+			await Save(list, path);
 		}
 
 		private static string DateTimeNow(string format) => DateTime.Now.ToString(format);
 
-		private static async Task Save(List<ResponseModel> items)
+		private static async Task Save<T>(T item, string path)
 		{
-			var path = Path.Combine(GetFolderPath(), $"data_{DateTimeNow(FULL_DATE_TIME)}");
-
 			using (var createStream = File.Create(path))
 			{
-				await JsonSerializer.SerializeAsync(createStream, items, options: new JsonSerializerOptions() { WriteIndented = true });
+				await JsonSerializer.SerializeAsync(createStream, item, options: new JsonSerializerOptions() { WriteIndented = true });
 			}
 		}
 
-		private static string GetFolderPath() => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Network Tester");
+		private static string GetFolderPath() => 
+			Path.Combine
+				(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), 
+				"Network Tester");
+
+		private static string GetDataFolderPath() => Path.Combine(GetFolderPath(), "Data", DateTimeNow("dd-MM-yyyy"));
+		private static string GetConfigPath() => Path.Combine(GetFolderPath(), "config.json");
 
 		private static void Ping()
 		{
-			var ipAdress = "8.8.8.8";
-			var ping = new Ping();
 			bool sucess = false;
-			PingReply reply = ping.Send(ipAdress, 100);
 
 			try
 			{
+				var ping = new Ping();
+				PingReply reply = ping.Send(_config.Address, _config.Timeout);
+
 				if (reply.Status == IPStatus.Success)
 				{
 					var status = reply.Status;
@@ -129,20 +171,18 @@ namespace Pinger
 				}
 				else
 				{
-					sucess = false;
 					_currentModel = ResponseModel.BadResponse(reply.Status, DateTimeNow(HOUR_DATE_TIME));
 				}
 			}
-			catch
+			catch (Exception ex)
 			{
-				sucess = false;
-				_currentModel = ResponseModel.BadResponse(reply.Status, DateTimeNow(HOUR_DATE_TIME));
+				_currentModel = ResponseModel.BadResponse(IPStatus.Unknown, DateTimeNow(HOUR_DATE_TIME));
 			}
 
-			//if (sucess == true)
-			//{
+			if (sucess == false)
+			{
 				_queue.Enqueue(_currentModel);
-			//}
+			}
 
 			_resetEvent.Set();
 		}
@@ -150,7 +190,7 @@ namespace Pinger
 		private static void UpdateUI()
 		{
 			Console.WriteLine(" Address: {0} \n Status: {1} \n RoundtripTime: {2} \n TimeStamp: {3} \n ---------------------------",
-							_currentModel.Address, _currentModel.Status, _currentModel.RoundTripTime, _currentModel.TimeStamp
+							_currentModel.Address, _currentModel.Status, _currentModel.RoundTripTime, _currentModel.TimeStamp.Replace('-', ':')
 							);
 		}
 	}
