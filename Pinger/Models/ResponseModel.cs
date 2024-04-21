@@ -1,12 +1,10 @@
-﻿using System;
-using System.Net.NetworkInformation;
+﻿using System.Net.NetworkInformation;
 using System.Text.Json.Serialization;
 
 namespace Pinger.Models
 {
 	public class ResponseModel
 	{
-
 		[JsonConverter(typeof(JsonStringEnumConverter))]
 		public IPStatus Status { get; set; }
 		[JsonIgnore]
