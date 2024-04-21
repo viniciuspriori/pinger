@@ -1,4 +1,5 @@
-﻿using System.Net.NetworkInformation;
+﻿using System;
+using System.Net.NetworkInformation;
 using System.Text.Json.Serialization;
 
 namespace Pinger.Models
@@ -10,7 +11,7 @@ namespace Pinger.Models
 		public IPStatus Status { get; set; }
 		[JsonIgnore]
 		public string Address { get; set; }
-		public long RoundTripTime { get; set; }
+		public long RoundtripTime { get; set; }
 		public string TimeStamp { get; set; }
 
 		public static ResponseModel GoodResponse(IPStatus status, string address, long roundtrip, string timeStamp)
@@ -18,8 +19,8 @@ namespace Pinger.Models
 			{
 				Status = status,
 				Address = address,
-				RoundTripTime = roundtrip,
-				TimeStamp = timeStamp,
+				RoundtripTime = roundtrip,
+				TimeStamp = timeStamp
 			};
 
 		public static ResponseModel BadResponse(IPStatus status, string timeStamp)
@@ -27,7 +28,7 @@ namespace Pinger.Models
 			{
 				Status = status,
 				Address = string.Empty,
-				RoundTripTime = 0,
+				RoundtripTime = 0,
 				TimeStamp = timeStamp,
 			};
 	}

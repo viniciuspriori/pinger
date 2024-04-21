@@ -17,9 +17,9 @@ namespace Pinger
 		/// <summary>
 		/// Constants
 		/// </summary>
-		private static int MAX_DATA = 100;
-		static string HOUR_DATE_TIME = "HH-mm-ss";
-		static string FULL_DATE_TIME = "dd-MM-yyyy_HH-mm-ss";
+		static string HOUR_FORMAT = "HH:mm:ss";
+		static string DAY_YEAR_FORMAT = "dd-MM-yyyy_HH-mm-ss";
+		static string DAY_FORMAT = "dd-MM-yyyy";
 
 		/// <summary>
 		/// Fields
@@ -66,7 +66,7 @@ namespace Pinger
 			else
 			{
 				_config = new ConfigModel();
-				await Save(_config, GetConfigPath());
+				await SaveJson(_config, GetConfigPath());
 			}
 		}
 
@@ -129,27 +129,60 @@ namespace Pinger
 				list.Add(model);
 			}
 
-			var path = Path.Combine(GetDataFolderPath(), $"data_{DateTimeNow(FULL_DATE_TIME)}");
-			await Save(list, path);
+			var path = Path.Combine(GetDataFolderPath(), $"data_{DateTimeNow(DAY_YEAR_FORMAT)}.csv");
+			await SaveCsv(list, path);
+		}
+
+		private async static Task SaveCsv(List<ResponseModel> list, string path)
+		{
+			try
+			{
+				using (var w = new StreamWriter(path))
+				{
+					string header = string.Join(",",
+									  nameof(ResponseModel.Address),
+									  nameof(ResponseModel.Status),
+									  nameof(ResponseModel.RoundtripTime),
+									  nameof(ResponseModel.TimeStamp));
+
+					await w.WriteLineAsync(header);
+
+					foreach (var model in list)
+					{
+						var line = string.Format("{0},{1},{2},{3}",
+							model.Address,
+							model.Status,
+							model.RoundtripTime,
+							model.TimeStamp);
+
+						await w.WriteLineAsync(line);
+						w.Flush();
+					}
+				}
+			}
+			catch(Exception ex)
+			{
+				_exceptions.Add(ex.Message);
+			}
 		}
 
 		private static string DateTimeNow(string format) => DateTime.Now.ToString(format);
 
-		private static async Task Save<T>(T item, string path)
+		private static async Task SaveJson<T>(T item, string path)
 		{
 			using (var createStream = File.Create(path))
 			{
-				await JsonSerializer.SerializeAsync(createStream, item, options: new JsonSerializerOptions() { WriteIndented = true });
+				await JsonSerializer.SerializeAsync(createStream, item, options: new JsonSerializerOptions() {  WriteIndented = true });
 			}
 		}
 
-		private static string GetFolderPath() => 
+		private static string GetRootFolderPath() => 
 			Path.Combine
 				(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), 
 				"Network Tester");
 
-		private static string GetDataFolderPath() => Path.Combine(GetFolderPath(), "Data", DateTimeNow("dd-MM-yyyy"));
-		private static string GetConfigPath() => Path.Combine(GetFolderPath(), "config.json");
+		private static string GetDataFolderPath() => Path.Combine(GetRootFolderPath(), "Data", DateTimeNow(DAY_FORMAT));
+		private static string GetConfigPath() => Path.Combine(GetRootFolderPath(), "config.json");
 
 		private static void Ping()
 		{
@@ -167,16 +200,16 @@ namespace Pinger
 					var roundTripTime = reply.RoundtripTime;
 					sucess = true;
 
-					_currentModel = ResponseModel.GoodResponse(status, address, roundTripTime, DateTimeNow(HOUR_DATE_TIME));
+					_currentModel = ResponseModel.GoodResponse(status, address, roundTripTime, DateTimeNow(HOUR_FORMAT));
 				}
 				else
 				{
-					_currentModel = ResponseModel.BadResponse(reply.Status, DateTimeNow(HOUR_DATE_TIME));
+					_currentModel = ResponseModel.BadResponse(reply.Status, DateTimeNow(HOUR_FORMAT));
 				}
 			}
 			catch (Exception ex)
 			{
-				_currentModel = ResponseModel.BadResponse(IPStatus.Unknown, DateTimeNow(HOUR_DATE_TIME));
+				_currentModel = ResponseModel.BadResponse(IPStatus.Unknown, DateTimeNow(HOUR_FORMAT));
 			}
 
 			if (sucess == false)
@@ -189,8 +222,8 @@ namespace Pinger
 
 		private static void UpdateUI()
 		{
-			Console.WriteLine(" Address: {0} \n Status: {1} \n RoundtripTime: {2} \n TimeStamp: {3} \n ---------------------------",
-							_currentModel.Address, _currentModel.Status, _currentModel.RoundTripTime, _currentModel.TimeStamp.Replace('-', ':')
+			Console.WriteLine(" IP: {0} \n Status: {1} \n Roundtrip Time: {2}ms \n TimeStamp: {3} \n ---------------------------",
+							_currentModel.Address, _currentModel.Status, _currentModel.RoundtripTime, _currentModel.TimeStamp
 							);
 		}
 	}
