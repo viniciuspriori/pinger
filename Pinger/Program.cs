@@ -2,10 +2,12 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics.Eventing.Reader;
 using System.IO;
 using System.Linq;
 using System.Net.NetworkInformation;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,6 +22,7 @@ namespace Pinger
 		static string HOUR_FORMAT = "HH:mm:ss";
 		static string DAY_YEAR_FORMAT = "dd-MM-yyyy_HH-mm-ss";
 		static string DAY_FORMAT = "dd-MM-yyyy";
+		static int MAX_LOG = 1000;
 
 		/// <summary>
 		/// Fields
@@ -30,9 +33,12 @@ namespace Pinger
 		private static AutoResetEvent _resetEvent = new AutoResetEvent(false);
 		private static ConfigModel _config;
 		private static int _count = 0;
+		private static ConcurrentQueue<string> _log = new ConcurrentQueue<string>();
 
 		static async Task Main(string[] args)
 		{
+			InitLog();
+			Console.CancelKeyPress += Console_CancelKeyPress;
 			await LoadDirectories();
 
 			try
@@ -43,26 +49,46 @@ namespace Pinger
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine(ex.ToString());
+				LogException(ex);
 			}
 
-			while (Console.ReadKey().Key != ConsoleKey.Escape) //stuck in a loop unless Esc key is pressed.
-			{ }
+			while (_running) { }
 
+			Console.CancelKeyPress -= Console_CancelKeyPress;
+			SaveDebugFile();
+		}
+
+		private static void InitLog()
+		{
+			_log.Enqueue($"Init time: {DateTimeNow("dd/MM/yyyy - HH:mm:ss")}");
+		}
+
+		private static void SaveDebugFile()
+		{
+			_log.Enqueue($"Finish time: {DateTimeNow("dd/MM/yyyy - HH:mm:ss")}");
+			_log.Enqueue($"----------------------------------");
+			File.AppendAllLines(Path.Combine(GetRootFolderPath(), "Debug.txt"), _log);
+		}
+		
+		private static void Console_CancelKeyPress(object sender, ConsoleCancelEventArgs e)
+		{
 			_running = false;
+			e.Cancel = true;
+			_resetEvent.Close();
+			return;
 		}
 
 		private static async Task LoadDirectories()
 		{
 			Directory.CreateDirectory(GetDataFolderPath());
 
-			if(File.Exists(GetConfigPath()))
+			if (File.Exists(GetConfigPath()))
 			{
 				using (FileStream openStream = File.OpenRead(GetConfigPath()))
 				{
 					_config = JsonSerializer.Deserialize<ConfigModel>(openStream);
 				}
-			} 
+			}
 			else
 			{
 				_config = new ConfigModel();
@@ -160,11 +186,23 @@ namespace Pinger
 					}
 				}
 			}
-			catch(Exception ex)
+			catch (Exception ex)
 			{
-				_exceptions.Add(ex.Message);
+				LogException(ex);
 			}
 		}
+
+		private static void LogException(Exception ex)
+		{
+			if (_log.Count > MAX_LOG)
+			{
+				_log.TryDequeue(out _);
+			}
+
+			_log.Enqueue(ex.Message);
+		}
+
+		public static string FormatException(string message) => string.Join(":", DateTimeNow(DAY_YEAR_FORMAT), message);
 
 		private static string DateTimeNow(string format) => DateTime.Now.ToString(format);
 
@@ -172,13 +210,13 @@ namespace Pinger
 		{
 			using (var createStream = File.Create(path))
 			{
-				await JsonSerializer.SerializeAsync(createStream, item, options: new JsonSerializerOptions() {  WriteIndented = true });
+				await JsonSerializer.SerializeAsync(createStream, item, options: new JsonSerializerOptions() { WriteIndented = true });
 			}
 		}
 
-		private static string GetRootFolderPath() => 
+		private static string GetRootFolderPath() =>
 			Path.Combine
-				(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), 
+				(Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
 				"Network Tester");
 
 		private static string GetDataFolderPath() => Path.Combine(GetRootFolderPath(), "Data", DateTimeNow(DAY_FORMAT));

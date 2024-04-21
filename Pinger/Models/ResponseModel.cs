@@ -27,9 +27,9 @@ namespace Pinger.Models
 			=> new ResponseModel()
 			{
 				Status = status,
-				Address = string.Empty,
-				RoundtripTime = 0,
-				TimeStamp = timeStamp,
+				Address = "0.0.0.0",
+				RoundtripTime = -1,
+				TimeStamp = timeStamp
 			};
 	}
 }
